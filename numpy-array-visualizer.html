@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NumPy-Style Array 3D Visualizer</title>
+  <style>
+    :root{
+      --bg: #0b0f14;
+      --panel: #121821;
+      --panel-2: #0f1520;
+      --text: #e6edf3;
+      --muted: #9fb0c0;
+      --accent: #4cc9f0;
+      --accent-2:#a8dadc;
+      --danger:#ef476f;
+      --ok:#34d399;
+    }
+    *{box-sizing:border-box}
+    html, body{height:100%}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      color:var(--text);
+      background: radial-gradient(1200px 600px at 20% -10%, #112 0%, #0b0f14 60% 100%);
+      overflow:hidden;
+    }
+
+    /* Layout */
+    .app{display:grid; grid-template-rows:auto 1fr; height:100%}
+    header{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 18px; background:linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.00));
+      border-bottom:1px solid rgba(255,255,255,0.06);
+      backdrop-filter: blur(8px);
+    }
+    .brand{display:flex; gap:10px; align-items:center}
+    .brand .logo{
+      width:36px; height:36px; border-radius:10px;
+      background: conic-gradient(from 200deg, #4cc9f0, #b5179e, #f72585, #4cc9f0);
+      filter: drop-shadow(0 4px 14px rgba(79, 209, 255, .35));
+    }
+    .brand h1{font-size:16px; margin:0; letter-spacing:0.4px; font-weight:700}
+    .hint{font-size:12px; color:var(--muted)}
+
+    /* Panels */
+    .panel{max-width:1100px; margin:24px auto; background:linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)); border:1px solid rgba(255,255,255,0.06); border-radius:18px; box-shadow:0 10px 40px rgba(0,0,0,0.35)}
+    .panel .content{padding:18px}
+
+    /* Input view */
+    #inputView{display:flex; flex-direction:column; gap:14px; height:100%;}
+    #inputView .hero{padding:24px 22px 10px}
+    #inputView .title{font-size:22px; font-weight:800; margin:0 0 6px}
+    #inputView .subtitle{margin:0; color:var(--muted)}
+
+    textarea{
+      width:100%; min-height:230px; resize:vertical; border-radius:14px; padding:16px 14px; border:1px solid rgba(255,255,255,0.06);
+      background:var(--panel); color:var(--text); font-size:14px; line-height:1.6; outline:none; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+      margin-bottom:14px; /* Space below textarea */
+    }
+    .actions{display:flex; gap:12px; align-items:center; flex-wrap:wrap}
+    button{
+      appearance:none; border:none; cursor:pointer; padding:12px 16px; border-radius:12px; font-weight:700; letter-spacing:0.2px;
+      background:linear-gradient(180deg, #4cc9f0, #4895ef); color:#051018;
+      box-shadow: 0 10px 30px rgba(76,201,240,0.35), inset 0 -2px 0 rgba(0,0,0,0.15);
+      transition: transform .08s ease, box-shadow .2s ease, filter .2s ease;
+    }
+    button:hover{transform: translateY(-1px); filter:saturate(1.1)}
+    button.secondary{background:linear-gradient(180deg, #1f2937, #111827); color:var(--text)}
+    .note{font-size:12px; color:var(--muted)}
+    .error{color:var(--danger); font-weight:600}
+
+    /* Viz view */
+    #vizView{display:none; height:100%;}
+    .toolbar{position:fixed; left:18px; bottom:18px; display:flex; gap:10px; z-index:10}
+    .tool{
+      padding:10px 12px; border-radius:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08);
+      font-size:12px; color:var(--text); backdrop-filter: blur(8px); cursor:pointer;
+    }
+    .tool:hover{background:rgba(255,255,255,0.08)}
+
+    /* Canvas holder */
+    #sceneWrap{position:relative; height:calc(100vh - 62px); margin:0 auto 0; max-width:1600px;}
+    #three{position:absolute; inset:0;}
+
+    /* Tooltip */
+    #tooltip{position:fixed; pointer-events:none; background:rgba(0,0,0,0.75); color:#fff; padding:6px 8px; font-size:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.12); transform: translate(-50%, -130%); display:none}
+
+    /* Responsive tweaks */
+    @media (max-width: 680px){
+      .brand h1{display:none}
+      #sceneWrap{height:calc(100vh - 56px)}
+      textarea{min-height:190px}
+    }
+  </style>
+
+  <!-- Import map: resolves "three" and its addons in-browser -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <h1>Array 3D Visualizer</h1>
+      </div>
+      <div class="hint">Paste a NumPy-style array → Visualize → Explore in 3D</div>
+    </header>
+
+    <!-- INPUT VIEW -->
+    <section id="inputView" class="panel" aria-label="Paste array input">
+      <div class="hero">
+        <h2 class="title">Paste your NumPy-style array</h2>
+        <p class="subtitle">Supports 1D, 2D, and 3D arrays (e.g. <code>[[1,2,3],[4,5,6]]</code> or <code>[[[...]]]</code>). Trailing commas and whitespace are OK.</p>
+      </div>
+      <div class="content">
+        <textarea id="arrayInput" placeholder="Example:\n[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]],\n [[13, 14, 15, 16], [17, 18, 19, 20], [21, 22, 23, 24]]]"></textarea>
+        <div class="actions">
+          <button id="visualizeBtn">Visualize</button>
+          <button class="secondary" id="load1D">Load 1D Sample</button>
+          <button class="secondary" id="load2D">Load 2D Sample</button>
+          <button class="secondary" id="loadSample">Load 3D Sample</button>
+          <span class="note">Tip: You can also paste Python lists or <code>np.array([...])</code>.</span>
+        </div>
+        <div id="error" class="error" role="alert" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- VIZ VIEW -->
+    <section id="vizView">
+      <div id="sceneWrap" class="panel">
+        <div id="three" aria-label="3D visualization canvas"></div>
+      </div>
+      <div class="toolbar">
+        <button class="tool" id="backBtn">← Back</button>
+        <button class="tool" id="resetCam">Reset View</button>
+        <button class="tool" id="toggleWire">Toggle Wireframe</button>
+        <div class="tool" id="dims">Dims: –</div>
+      </div>
+      <div id="tooltip"></div>
+    </section>
+  </div>
+
+  <!-- Three.js (ESM) -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ---------- Helpers: Parsing & Validation ----------
+    function toJSONish(text){
+      // Strip wrappers like np.array( ... ), array( ... ), numpy.array( ... ) possibly nested
+      let t = text.trim();
+      // Remove newlines for easier matching, keep commas and spaces
+      t = t.replace(/\n|\r/g, ' ');
+      // Remove dtype/shape metadata often seen in printouts
+      t = t.replace(/dtype\s*=\s*[^)]+\)/gi, ')');
+      // Remove "array(" wrappers repeatedly until none remain
+      let prev;
+      do {
+        prev = t;
+        t = t.replace(/(?:np\.|numpy\.)?array\s*\(/gi, '');
+        // Balance trailing ")" if any extra remain; keep only the inner brackets
+        // If there are more ) than (, trim from the end
+        const open = (prev.match(/\(/g)||[]).length;
+        const close = (prev.match(/\)/g)||[]).length;
+        if(close > open){ t = t.replace(/\)+\s*$/, ''); }
+      } while (t !== prev);
+      // Convert single quotes to double quotes to be valid JSON if strings present
+      t = t.replace(/'/g, '"');
+      // Remove trailing commas before ] or }
+      t = t.replace(/,\s*([\]\}])/g, '$1');
+      // Collapse multiple spaces
+      t = t.replace(/\s{2,}/g, ' ');
+      return t;
+    }
+
+    function parseArrayInput(text){
+      const t = toJSONish(text);
+      try { return JSON.parse(t); } 
+      catch(e){
+        throw new Error('Could not parse the input as a valid 1D/2D/3D array. Please check brackets and commas.');
+      }
+    }
+
+    function getDims(a){
+      const dims = [];
+      let curr = a;
+      while (Array.isArray(curr)){
+        dims.push(curr.length);
+        curr = curr[0];
+      }
+      return dims; // e.g., [rows, cols] or [z,y,x]
+    }
+
+    function isRectangular(a){
+      if(!Array.isArray(a)) return true;
+      const len = a[0]?.length;
+      for(const row of a){
+        if(Array.isArray(row)){
+          if(row.length !== len || !isRectangular(row)) return false;
+        } else if (typeof row === 'undefined') return false;
+      }
+      return true;
+    }
+
+    function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+    // ---------- UI Elements ----------
+    const inputView = document.getElementById('inputView');
+    const vizView   = document.getElementById('vizView');
+    const textArea  = document.getElementById('arrayInput');
+    const errorEl   = document.getElementById('error');
+    const dimsEl    = document.getElementById('dims');
+    const tooltip   = document.getElementById('tooltip');
+
+    // Test cases (buttons)
+    document.getElementById('load1D').addEventListener('click', () => {
+      textArea.value = `[1, 2, 3, 4, 5, 6, 7, 8]`;
+      errorEl.textContent = '';
+    });
+    document.getElementById('load2D').addEventListener('click', () => {
+      textArea.value = `[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]]`;
+      errorEl.textContent = '';
+    });
+    document.getElementById('loadSample').addEventListener('click', () => {
+      textArea.value = `[[[1,  2,  3,  4], [5,  6,  7,  8], [9, 10, 11, 12]],\n [[13, 14, 15, 16], [17, 18, 19, 20], [21, 22, 23, 24]]]`;
+      errorEl.textContent = '';
+    });
+
+    document.getElementById('visualizeBtn').addEventListener('click', () => {
+      errorEl.textContent = '';
+      let data;
+      try{
+        data = parseArrayInput(textArea.value);
+      }catch(e){
+        errorEl.textContent = e.message;
+        return;
+      }
+      const dims = getDims(data);
+      if(dims.length < 1 || dims.length > 3){
+        errorEl.textContent = 'Only 1D, 2D, and 3D arrays are supported.';
+        return;
+      }
+      if(!isRectangular(data)){
+        errorEl.textContent = 'Ragged arrays detected. Please provide a rectangular (uniform) array.';
+        return;
+      }
+      // Switch view
+      inputView.style.display = 'none';
+      vizView.style.display = 'block';
+      dimsEl.textContent = `Dims: [${dims.join(', ')}]`;
+      initScene();
+      buildVisualization(data);
+      animate();
+    });
+
+    document.getElementById('backBtn').addEventListener('click', () => {
+      // Tear down scene to free memory
+      disposeScene();
+      vizView.style.display = 'none';
+      inputView.style.display = 'block';
+    });
+
+    // ---------- THREE.js Setup ----------
+    let renderer, scene, camera, controls, raycaster, mouse, rootGroup;
+    let wireframeEnabled = false;
+    let rafId = null;
+
+    const container = document.getElementById('three');
+
+    function initScene(){
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      container.innerHTML = '';
+      container.appendChild(renderer.domElement);
+
+      // Scene & camera
+      scene = new THREE.Scene();
+      scene.fog = new THREE.Fog(0x0b0f14, 30, 120);
+
+      const aspect = container.clientWidth / container.clientHeight;
+      camera = new THREE.PerspectiveCamera(50, aspect, 0.1, 500);
+      camera.position.set(8, 10, 14);
+
+      // Lights
+      scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+      const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+      dir.position.set(5, 10, 7);
+      scene.add(dir);
+
+      // Controls
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.06;
+      controls.minDistance = 3;
+      controls.maxDistance = 120;
+      controls.screenSpacePanning = false;
+
+      // Picking
+      raycaster = new THREE.Raycaster();
+      mouse = new THREE.Vector2();
+      renderer.domElement.addEventListener('mousemove', onMouseMove);
+
+      // Root group
+      rootGroup = new THREE.Group();
+      scene.add(rootGroup);
+
+      window.addEventListener('resize', onResize);
+      document.getElementById('resetCam').onclick = () => resetCamera();
+      document.getElementById('toggleWire').onclick = () => toggleWireframe();
+    }
+
+    function disposeScene(){
+      window.removeEventListener('resize', onResize);
+      if(renderer){
+        renderer.domElement.removeEventListener('mousemove', onMouseMove);
+      }
+      if(scene){
+        scene.traverse(obj => {
+          if(obj.geometry) obj.geometry.dispose?.();
+          if(obj.material){
+            if(Array.isArray(obj.material)) obj.material.forEach(m => m.dispose?.());
+            else obj.material.dispose?.();
+          }
+          if(obj.texture) obj.texture.dispose?.();
+        });
+      }
+      if(rafId) cancelAnimationFrame(rafId);
+      renderer?.dispose?.();
+      container.innerHTML = '';
+      scene = camera = controls = renderer = null;
+      rootGroup = null;
+    }
+
+    function onResize(){
+      if(!renderer || !camera) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      renderer.setSize(w, h);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+
+    function resetCamera(){
+      camera.position.set(8, 10, 14);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    }
+
+    function toggleWireframe(){
+      wireframeEnabled = !wireframeEnabled;
+      rootGroup.traverse(obj => {
+        if(obj.isMesh && obj.material){ obj.material.wireframe = wireframeEnabled; }
+      });
+    }
+
+    // ---------- Visualization ----------
+    function buildVisualization(data){
+      // Compute numeric range for colors
+      const values = [];
+      (function collect(v){
+        if(Array.isArray(v)) v.forEach(collect);
+        else if(typeof v === 'number' && Number.isFinite(v)) values.push(v);
+      })(data);
+      let vMin = Math.min(...values);
+      let vMax = Math.max(...values);
+      if(!values.length || !isFinite(vMin) || !isFinite(vMax)){
+        vMin = 0; vMax = 1;
+      }
+
+      // Dimensions
+      const dims = getDims(data); // len 1..3
+      dimsEl.textContent = `Dims: [${dims.join(', ')}]`;
+
+      // Layout spacing
+      const pad = 0.15;       // gap between cells
+      const cell = 1.0;       // cell size
+      const layerGap = 1.1;   // gap between 2D layers (z)
+
+      // Add a soft ground grid and axes
+      const gridSize = 50;
+      const grid = new THREE.GridHelper(gridSize, gridSize/2, 0x335, 0x223);
+      grid.position.y = -0.51;
+      scene.add(grid);
+      const axes = new THREE.AxesHelper(4);
+      axes.position.set(-2.5, -0.5, -2.5);
+      scene.add(axes);
+
+      // Create cells
+      const group = new THREE.Group();
+      rootGroup.add(group);
+
+      const boxGeo = new THREE.BoxGeometry(cell, cell, cell);
+
+      // Text sprite creator for labels
+      function makeLabel(text){
+        const canvas = document.createElement('canvas');
+        const size = 128; canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillRect(0,0,size,size);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 42px Inter, system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 2;
+        ctx.fillText(String(text), size/2, size/2);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.anisotropy = 8; tex.needsUpdate = true;
+        const mat = new THREE.SpriteMaterial({ map: tex, depthWrite: false });
+        const spr = new THREE.Sprite(mat);
+        spr.scale.set(0.7, 0.7, 0.7);
+        return spr;
+      }
+
+      function colorForValue(v){
+        // Map numeric value to a cool-to-warm HSL gradient
+        if(!Number.isFinite(v)) return new THREE.Color('#546e7a');
+        const t = (v - vMin) / (vMax - vMin || 1);
+        const h = 220 - 220 * clamp(t, 0, 1); // 220 (blue) -> 0 (red)
+        const s = 0.7; const l = 0.55;
+        const col = new THREE.Color(); col.setHSL(h/360, s, l);
+        return col;
+      }
+
+      // Recursive placement
+      const hoverables = [];
+
+      function addCell(x, y, z, v, idx){
+        const mat = new THREE.MeshStandardMaterial({ color: colorForValue(v), metalness: 0.1, roughness: 0.55 });
+        const mesh = new THREE.Mesh(boxGeo, mat);
+        mesh.position.set(x, y, z);
+        mesh.userData = { value: v, index: idx };
+        group.add(mesh); hoverables.push(mesh);
+
+        // Label on top
+        const label = makeLabel(v);
+        label.position.set(x, y + 0.65, z);
+        group.add(label);
+      }
+
+      function layout1D(arr){
+        const n = arr.length;
+        const width = n * (cell + pad) - pad;
+        const x0 = -width/2 + cell/2;
+        arr.forEach((v, i) => {
+          const x = x0 + i * (cell + pad);
+          addCell(x, 0, 0, v, [i]);
+        });
+      }
+
+      function layout2D(arr){
+        const rows = arr.length; const cols = arr[0].length;
+        const w = cols * (cell + pad) - pad;
+        const d = rows * (cell + pad) - pad;
+        const x0 = -w/2 + cell/2; const z0 = -d/2 + cell/2;
+        for(let r=0;r<rows;r++){
+          for(let c=0;c<cols;c++){
+            const x = x0 + c * (cell + pad);
+            const z = z0 + r * (cell + pad);
+            addCell(x, 0, z, arr[r][c], [r,c]);
+          }
+        }
+      }
+
+      function layout3D(arr){
+        const depth = arr.length; const rows = arr[0].length; const cols = arr[0][0].length;
+        const w = cols * (cell + pad) - pad;
+        const d = rows * (cell + pad) - pad;
+        const x0 = -w/2 + cell/2; const z0 = -d/2 + cell/2;
+        const stackOffset = (depth-1) * (cell + layerGap);
+        const y0 = stackOffset/2; // center stacks around 0
+        for(let k=0;k<depth;k++){
+          for(let r=0;r<rows;r++){
+            for(let c=0;c<cols;c++){
+              const x = x0 + c * (cell + pad);
+              const z = z0 + r * (cell + pad);
+              const y = y0 - k * (cell + layerGap);
+              addCell(x, y, z, arr[k][r][c], [k,r,c]);
+            }
+          }
+        }
+      }
+
+      const dimsLen = dims.length;
+      if(dimsLen === 1) layout1D(data);
+      else if(dimsLen === 2) layout2D(data);
+      else layout3D(data);
+
+      // Frame the content
+      const box = new THREE.Box3().setFromObject(group);
+      const size = box.getSize(new THREE.Vector3()).length();
+      const center = box.getCenter(new THREE.Vector3());
+      controls.target.copy(center);
+      camera.position.copy(center).add(new THREE.Vector3(size*0.35, size*0.5, size*0.7));
+      camera.near = Math.max(0.1, size/200);
+      camera.far  = Math.max(100, size*3);
+      camera.updateProjectionMatrix();
+      controls.update();
+
+      // Hover picking setup
+      rootGroup.userData.hoverables = hoverables;
+    }
+
+    // ---------- Interaction (hover tooltip) ----------
+    function onMouseMove(e){
+      if(!renderer || !camera || !rootGroup) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      const hoverables = rootGroup.userData.hoverables || [];
+      if(!hoverables.length) return;
+      const xNdc = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const yNdc = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      // Guard against zero-sized canvas (hidden/resizing)
+      if(!Number.isFinite(xNdc) || !Number.isFinite(yNdc)) return;
+
+      const mouse = new THREE.Vector2(xNdc, yNdc);
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(hoverables, false);
+      if(intersects.length){
+        const obj = intersects[0].object;
+        const { value, index } = obj.userData || {};
+        tooltip.style.display = 'block';
+        tooltip.style.left = e.clientX + 'px';
+        tooltip.style.top  = e.clientY + 'px';
+        tooltip.textContent = `index ${JSON.stringify(index)} = ${value}`;
+        document.body.style.cursor = 'pointer';
+      } else {
+        tooltip.style.display = 'none';
+        document.body.style.cursor = 'default';
+      }
+    }
+
+    // ---------- Animation Loop ----------
+    function animate(){
+      if(!renderer) return;
+      rafId = requestAnimationFrame(animate);
+      controls?.update();
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
